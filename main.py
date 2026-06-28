@@ -1,16 +1,24 @@
 import os
 from typing import Optional
 
+from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from botocore.exceptions import BotoCoreError, ClientError
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, ValidationInfo, field_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import Base, engine, get_db
 from models import Lead
 from storage import enviar_jpg_para_s3
+from validations import (
+    normalizar_cep,
+    normalizar_cpf,
+    normalizar_telefone,
+    normalizar_texto_obrigatorio,
+    normalizar_texto_opcional,
+    validar_upload_jpg,
+)
 
 app = FastAPI()
 
@@ -33,7 +41,7 @@ if cors_origins:
 class LeadCreate(BaseModel): #valida os campos
     nome: str
     cpf: str
-    email: str
+    email: EmailStr
     telefone: str
     cep: str
     cidade: str
@@ -47,6 +55,52 @@ class LeadCreate(BaseModel): #valida os campos
     site: Optional[str] = None
     observacoes: Optional[str] = None
 
+    @field_validator("nome", "cidade", mode="before")
+    @classmethod
+    def validar_textos_obrigatorios(cls, valor, info: ValidationInfo):
+        return normalizar_texto_obrigatorio(valor, info.field_name)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def validar_email_obrigatorio(cls, valor):
+        return normalizar_texto_obrigatorio(valor, "email")
+
+    @field_validator("email", mode="after")
+    @classmethod
+    def normalizar_email(cls, valor: EmailStr):
+        return str(valor).lower()
+
+    @field_validator("cpf", mode="before")
+    @classmethod
+    def validar_cpf(cls, valor):
+        return normalizar_cpf(valor)
+
+    @field_validator("telefone", mode="before")
+    @classmethod
+    def validar_telefone(cls, valor):
+        return normalizar_telefone(valor)
+
+    @field_validator("cep", mode="before")
+    @classmethod
+    def validar_cep(cls, valor):
+        return normalizar_cep(valor)
+
+    @field_validator(
+        "data_nascimento",
+        "genero",
+        "instagram",
+        "empresa",
+        "cargo",
+        "setor",
+        "linkedin",
+        "site",
+        "observacoes",
+        mode="before",
+    )
+    @classmethod
+    def normalizar_textos_opcionais(cls, valor):
+        return normalizar_texto_opcional(valor)
+
 
 def buscar_lead_ou_404(token: str, db: Session):
     lead = db.query(Lead).filter(Lead.token == token).first()
@@ -55,11 +109,6 @@ def buscar_lead_ou_404(token: str, db: Session):
         raise HTTPException(status_code=404, detail="Lead nao encontrado")
 
     return lead
-
-
-def validar_arquivo_jpg(arquivo: UploadFile):
-    if arquivo.content_type not in {"image/jpeg", "image/jpg"}:
-        raise HTTPException(status_code=400, detail="Envie um arquivo JPG")
 
 
 @app.on_event("startup")
@@ -122,7 +171,7 @@ def enviar_foto_lead(
     db: Session = Depends(get_db),
 ):
     lead = buscar_lead_ou_404(token=token, db=db)
-    validar_arquivo_jpg(arquivo)
+    validar_upload_jpg(arquivo)
 
     try:
         lead.url_foto = enviar_jpg_para_s3(
@@ -146,7 +195,7 @@ def enviar_card_lead(
     db: Session = Depends(get_db),
 ):
     lead = buscar_lead_ou_404(token=token, db=db)
-    validar_arquivo_jpg(arquivo)
+    validar_upload_jpg(arquivo)
 
     try:
         lead.url_card = enviar_jpg_para_s3(
