@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import Base, engine, get_db
@@ -53,6 +54,12 @@ def criar_tabelas():
 @app.get("/")
 def read_root():
     return {"status": "Backend no ar"}
+
+
+@app.get("/health")
+def health_check(db: Session = Depends(get_db)):
+    db.execute(text("SELECT 1"))
+    return {"status": "ok", "database": "ok"}
 
 
 @app.post("/leads")
