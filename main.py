@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from database import Base, engine, get_db
 from models import Lead
 from qr_code import gerar_qrcode_png
-from storage import enviar_jpg_para_s3
+from storage import enviar_jpg_para_s3, gerar_url_temporaria_s3
 from validations import (
     normalizar_cep,
     normalizar_cpf,
@@ -233,7 +233,12 @@ def baixar_card_lead(token: str, db: Session = Depends(get_db)): #esse endpoint 
     lead = buscar_lead_ou_404(token=token, db=db) #busca o token no banco
     garantir_card_gerado(lead) #verifica se o url_card já existe
 
-    return RedirectResponse(url=lead.url_card) #se existir, redireciona para o card no s3
+    try:
+        url_temporaria = gerar_url_temporaria_s3(lead.url_card)
+    except (BotoCoreError, ClientError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail="Erro ao gerar URL temporaria do card") from exc
+
+    return RedirectResponse(url=url_temporaria) #redireciona para uma URL temporária assinada do S3
 
 
 @app.get("/leads/{token}/qrcode")
