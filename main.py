@@ -1,14 +1,16 @@
 import os
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from botocore.exceptions import BotoCoreError, ClientError
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import Base, engine, get_db
 from models import Lead
+from storage import enviar_jpg_para_s3
 
 app = FastAPI()
 
@@ -46,6 +48,20 @@ class LeadCreate(BaseModel): #valida os campos
     observacoes: Optional[str] = None
 
 
+def buscar_lead_ou_404(token: str, db: Session):
+    lead = db.query(Lead).filter(Lead.token == token).first()
+
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead nao encontrado")
+
+    return lead
+
+
+def validar_arquivo_jpg(arquivo: UploadFile):
+    if arquivo.content_type not in {"image/jpeg", "image/jpg"}:
+        raise HTTPException(status_code=400, detail="Envie um arquivo JPG")
+
+
 @app.on_event("startup")
 def criar_tabelas():
     Base.metadata.create_all(bind=engine)
@@ -74,10 +90,7 @@ def criar_lead(lead: LeadCreate, db: Session = Depends(get_db)):
 
 @app.get("/leads/{token}")
 def buscar_lead_por_token(token: str, db: Session = Depends(get_db)):
-    lead = db.query(Lead).filter(Lead.token == token).first()
-
-    if lead is None:
-        raise HTTPException(status_code=404, detail="Lead nao encontrado")
+    lead = buscar_lead_ou_404(token=token, db=db)
 
     return {
         "id": lead.id,
@@ -100,3 +113,51 @@ def buscar_lead_por_token(token: str, db: Session = Depends(get_db)):
         "token": lead.token,
         "criado_em": lead.criado_em,
     }
+
+
+@app.post("/leads/{token}/foto")
+def enviar_foto_lead(
+    token: str,
+    arquivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    lead = buscar_lead_ou_404(token=token, db=db)
+    validar_arquivo_jpg(arquivo)
+
+    try:
+        lead.url_foto = enviar_jpg_para_s3(
+            arquivo=arquivo,
+            cpf=lead.cpf,
+            pasta="candidatos/fotos-moldura",
+        )
+    except (BotoCoreError, ClientError) as exc:
+        raise HTTPException(status_code=500, detail="Erro ao enviar foto para o S3") from exc
+
+    db.commit()
+    db.refresh(lead)
+
+    return {"id": lead.id, "token": lead.token, "url_foto": lead.url_foto}
+
+
+@app.post("/leads/{token}/card")
+def enviar_card_lead(
+    token: str,
+    arquivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    lead = buscar_lead_ou_404(token=token, db=db)
+    validar_arquivo_jpg(arquivo)
+
+    try:
+        lead.url_card = enviar_jpg_para_s3(
+            arquivo=arquivo,
+            cpf=lead.cpf,
+            pasta="candidatos/cards",
+        )
+    except (BotoCoreError, ClientError) as exc:
+        raise HTTPException(status_code=500, detail="Erro ao enviar card para o S3") from exc
+
+    db.commit()
+    db.refresh(lead)
+
+    return {"id": lead.id, "token": lead.token, "url_card": lead.url_card}
