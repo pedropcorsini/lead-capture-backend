@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -46,3 +46,33 @@ def criar_lead(lead: LeadCreate, db: Session = Depends(get_db)):
     db.refresh(novo_lead)
 
     return {"id": novo_lead.id, "token": novo_lead.token}
+
+
+@app.get("/leads/{token}")
+def buscar_lead_por_token(token: str, db: Session = Depends(get_db)):
+    lead = db.query(Lead).filter(Lead.token == token).first()
+
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead nao encontrado")
+
+    return {
+        "id": lead.id,
+        "nome": lead.nome,
+        "email": lead.email,
+        "telefone": lead.telefone,
+        "cep": lead.cep,
+        "cidade": lead.cidade,
+        "data_nascimento": lead.data_nascimento,
+        "genero": lead.genero,
+        "instagram": lead.instagram,
+        "empresa": lead.empresa,
+        "cargo": lead.cargo,
+        "setor": lead.setor,
+        "linkedin": lead.linkedin,
+        "site": lead.site,
+        "observacoes": lead.observacoes,
+        "url_foto": lead.url_foto,
+        "url_card": lead.url_card,
+        "token": lead.token,
+        "criado_em": lead.criado_em,
+    }
