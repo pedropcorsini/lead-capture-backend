@@ -2,14 +2,16 @@ import os
 from typing import Optional
 
 from botocore.exceptions import BotoCoreError, ClientError
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, ValidationInfo, field_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import Base, engine, get_db
 from models import Lead
+from qr_code import gerar_qrcode_png
 from storage import enviar_jpg_para_s3
 from validations import (
     normalizar_cep,
@@ -111,6 +113,20 @@ def buscar_lead_ou_404(token: str, db: Session):
     return lead
 
 
+def garantir_card_gerado(lead: Lead):
+    if not lead.url_card:
+        raise HTTPException(status_code=404, detail="Card ainda nao foi gerado")
+
+
+def montar_url_download_card(request: Request, token: str) -> str:
+    public_base_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+
+    if public_base_url:
+        return f"{public_base_url}/leads/{token}/download-card"
+
+    return str(request.url_for("baixar_card_lead", token=token))
+
+
 @app.on_event("startup")
 def criar_tabelas():
     Base.metadata.create_all(bind=engine)
@@ -210,3 +226,26 @@ def enviar_card_lead(
     db.refresh(lead)
 
     return {"id": lead.id, "token": lead.token, "url_card": lead.url_card}
+
+
+@app.get("/leads/{token}/download-card", name="baixar_card_lead") 
+def baixar_card_lead(token: str, db: Session = Depends(get_db)): #esse endpoint recebe o token
+    lead = buscar_lead_ou_404(token=token, db=db) #busca o token no banco
+    garantir_card_gerado(lead) #verifica se o url_card já existe
+
+    return RedirectResponse(url=lead.url_card) #se existir, redireciona para o card no s3
+
+
+@app.get("/leads/{token}/qrcode")
+def gerar_qrcode_download_card(
+    token: str,
+    request: Request,
+    db: Session = Depends(get_db),
+): #esse endpoint recebe o token
+    lead = buscar_lead_ou_404(token=token, db=db) #busca o lead no banco
+    garantir_card_gerado(lead) #verifica se o card ja foi gerado
+
+    url_download = montar_url_download_card(request=request, token=token) #monta a url de download
+    qrcode_png = gerar_qrcode_png(url_download) #gera um qrcode, apontandfo para /leads/{token}/download-card
+
+    return StreamingResponse(qrcode_png, media_type="image/png")
