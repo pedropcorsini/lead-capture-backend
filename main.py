@@ -1,8 +1,9 @@
 import os
+import secrets
 from typing import Optional
 
 from botocore.exceptions import BotoCoreError, ClientError
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, ValidationInfo, field_validator
@@ -14,6 +15,7 @@ from models import Lead
 from qr_code import gerar_qrcode_png
 from storage import enviar_jpg_para_s3, gerar_url_temporaria_s3
 from validations import (
+    apenas_digitos,
     normalizar_cep,
     normalizar_cpf,
     normalizar_telefone,
@@ -127,6 +129,59 @@ def montar_url_download_card(request: Request, token: str) -> str:
     return str(request.url_for("baixar_card_lead", token=token))
 
 
+def verificar_admin(x_admin_api_key: Optional[str] = Header(default=None)):
+    admin_api_key = os.getenv("ADMIN_API_KEY")
+
+    if not admin_api_key:
+        raise HTTPException(status_code=500, detail="ADMIN_API_KEY nao configurada")
+
+    if not x_admin_api_key or not secrets.compare_digest(x_admin_api_key, admin_api_key):
+        raise HTTPException(status_code=401, detail="Nao autorizado")
+
+
+def buscar_lead_por_id_ou_404(lead_id: int, db: Session):
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead nao encontrado")
+
+    return lead
+
+
+def lead_para_admin(lead: Lead):
+    return {
+        "id": lead.id,
+        "nome": lead.nome,
+        "cpf": lead.cpf,
+        "email": lead.email,
+        "telefone": lead.telefone,
+        "cep": lead.cep,
+        "cidade": lead.cidade,
+        "data_nascimento": lead.data_nascimento,
+        "genero": lead.genero,
+        "instagram": lead.instagram,
+        "empresa": lead.empresa,
+        "cargo": lead.cargo,
+        "setor": lead.setor,
+        "linkedin": lead.linkedin,
+        "site": lead.site,
+        "observacoes": lead.observacoes,
+        "url_foto": lead.url_foto,
+        "url_card": lead.url_card,
+        "token": lead.token,
+        "criado_em": lead.criado_em,
+    }
+
+
+def redirecionar_para_card_temporario(lead: Lead):
+    try:
+        url_temporaria = gerar_url_temporaria_s3(lead.url_card)
+    except (BotoCoreError, ClientError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail="Erro ao gerar URL temporaria do card") from exc
+
+    return RedirectResponse(url=url_temporaria)
+
+
 @app.on_event("startup")
 def criar_tabelas():
     Base.metadata.create_all(bind=engine)
@@ -233,12 +288,7 @@ def baixar_card_lead(token: str, db: Session = Depends(get_db)): #esse endpoint 
     lead = buscar_lead_ou_404(token=token, db=db) #busca o token no banco
     garantir_card_gerado(lead) #verifica se o url_card já existe
 
-    try:
-        url_temporaria = gerar_url_temporaria_s3(lead.url_card)
-    except (BotoCoreError, ClientError, ValueError) as exc:
-        raise HTTPException(status_code=500, detail="Erro ao gerar URL temporaria do card") from exc
-
-    return RedirectResponse(url=url_temporaria) #redireciona para uma URL temporária assinada do S3
+    return redirecionar_para_card_temporario(lead) #redireciona para uma URL temporária assinada do S3
 
 
 @app.get("/leads/{token}/qrcode")
@@ -254,3 +304,59 @@ def gerar_qrcode_download_card(
     qrcode_png = gerar_qrcode_png(url_download) #gera um qrcode, apontandfo para /leads/{token}/download-card
 
     return StreamingResponse(qrcode_png, media_type="image/png")
+
+
+@app.get("/admin/leads")
+def listar_leads_admin(
+    nome: Optional[str] = Query(default=None),
+    cpf: Optional[str] = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    admin_autenticado: None = Depends(verificar_admin),
+):
+    query = db.query(Lead)
+
+    if nome and nome.strip():
+        query = query.filter(Lead.nome.ilike(f"%{nome.strip()}%"))
+
+    if cpf and cpf.strip():
+        cpf_limpo = apenas_digitos(cpf)
+
+        if len(cpf_limpo) != 11:
+            raise HTTPException(status_code=400, detail="CPF deve ter 11 digitos")
+
+        query = query.filter(Lead.cpf == cpf_limpo)
+
+    total = query.count()
+    leads = query.order_by(Lead.criado_em.desc()).offset(offset).limit(limit).all()
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": [lead_para_admin(lead) for lead in leads],
+    }
+
+
+@app.get("/admin/leads/{lead_id}")
+def detalhar_lead_admin(
+    lead_id: int,
+    db: Session = Depends(get_db),
+    admin_autenticado: None = Depends(verificar_admin),
+):
+    lead = buscar_lead_por_id_ou_404(lead_id=lead_id, db=db)
+
+    return lead_para_admin(lead)
+
+
+@app.get("/admin/leads/{lead_id}/download-card")
+def baixar_card_admin(
+    lead_id: int,
+    db: Session = Depends(get_db),
+    admin_autenticado: None = Depends(verificar_admin),
+):
+    lead = buscar_lead_por_id_ou_404(lead_id=lead_id, db=db)
+    garantir_card_gerado(lead)
+
+    return redirecionar_para_card_temporario(lead)
