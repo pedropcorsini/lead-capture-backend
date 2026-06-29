@@ -9,7 +9,7 @@ from qr_code import gerar_qrcode_png
 CARD_LARGURA = 1080
 CARD_ALTURA = 1350
 FOTO_TAMANHO = 720
-QR_TAMANHO = 170
+QR_TAMANHO = 240
 
 
 def carregar_fonte(tamanho: int, negrito: bool = False):
@@ -126,7 +126,7 @@ def gerar_card_jpg(lead, foto_bytes: bytes, url_download: str) -> bytes:
     qrcode = Image.open(gerar_qrcode_png(url_download)).convert("RGB")
     qrcode = qrcode.resize((QR_TAMANHO, QR_TAMANHO), Image.Resampling.LANCZOS)
     qr_x = (CARD_LARGURA - QR_TAMANHO) // 2
-    qr_y = 1128
+    qr_y = 1060
 
     draw.rounded_rectangle(
         (qr_x - 12, qr_y - 12, qr_x + QR_TAMANHO + 12, qr_y + QR_TAMANHO + 12),
