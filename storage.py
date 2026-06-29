@@ -1,5 +1,6 @@
 import os
 import re
+from io import BytesIO
 from datetime import datetime, timezone
 from urllib.parse import unquote, urlparse
 
@@ -83,6 +84,26 @@ def enviar_jpg_para_s3(arquivo, cpf: str, pasta: str) -> str:
 
     s3_client.upload_fileobj(
         arquivo.file,
+        S3_BUCKET_NAME,
+        chave,
+        ExtraArgs={"ContentType": "image/jpeg"},
+    )
+
+    return montar_url_s3(chave)
+
+
+def baixar_arquivo_s3(url_s3: str) -> bytes:
+    chave = extrair_chave_s3_de_url(url_s3)
+    resposta = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=chave)
+
+    return resposta["Body"].read()
+
+
+def enviar_bytes_jpg_para_s3(conteudo: bytes, cpf: str, pasta: str) -> str:
+    chave = gerar_chave_s3(cpf=cpf, pasta=pasta)
+
+    s3_client.upload_fileobj(
+        BytesIO(conteudo),
         S3_BUCKET_NAME,
         chave,
         ExtraArgs={"ContentType": "image/jpeg"},

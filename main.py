@@ -6,14 +6,21 @@ from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, ValidationInfo, field_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from card_generator import gerar_card_jpg
 from database import Base, engine, get_db
 from models import Lead
 from qr_code import gerar_qrcode_png
-from storage import enviar_jpg_para_s3, gerar_url_temporaria_s3
+from storage import (
+    baixar_arquivo_s3,
+    enviar_bytes_jpg_para_s3,
+    enviar_jpg_para_s3,
+    gerar_url_temporaria_s3,
+)
 from validations import (
     apenas_digitos,
     normalizar_cep,
@@ -25,6 +32,14 @@ from validations import (
 )
 
 app = FastAPI()
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
+
+MOLDURAS = [
+    {"id": "azul", "nome": "Azul", "arquivo": "moldura-azul.png"},
+    {"id": "branca", "nome": "Branca", "arquivo": "moldura-branca.png"},
+    {"id": "festiva", "nome": "Festiva", "arquivo": "moldura-festiva.png"},
+    {"id": "gold", "nome": "Gold", "arquivo": "moldura-gold.png"},
+]
 
 cors_origins = [
     origin.strip()
@@ -120,6 +135,11 @@ def garantir_card_gerado(lead: Lead):
         raise HTTPException(status_code=404, detail="Card ainda nao foi gerado")
 
 
+def garantir_foto_enviada(lead: Lead):
+    if not lead.url_foto:
+        raise HTTPException(status_code=404, detail="Foto com moldura ainda nao foi enviada")
+
+
 def montar_url_download_card(request: Request, token: str) -> str:
     public_base_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 
@@ -127,6 +147,15 @@ def montar_url_download_card(request: Request, token: str) -> str:
         return f"{public_base_url}/leads/{token}/download-card"
 
     return str(request.url_for("baixar_card_lead", token=token))
+
+
+def montar_base_url(request: Request) -> str:
+    public_base_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+
+    if public_base_url:
+        return public_base_url
+
+    return str(request.base_url).rstrip("/")
 
 
 def verificar_admin(x_admin_api_key: Optional[str] = Header(default=None)):
@@ -196,6 +225,20 @@ def read_root():
 def health_check(db: Session = Depends(get_db)):
     db.execute(text("SELECT 1"))
     return {"status": "ok", "database": "ok"}
+
+
+@app.get("/molduras")
+def listar_molduras(request: Request):
+    base_url = montar_base_url(request)
+
+    return [
+        {
+            "id": moldura["id"],
+            "nome": moldura["nome"],
+            "url": f"{base_url}/assets/molduras/{moldura['arquivo']}",
+        }
+        for moldura in MOLDURAS
+    ]
 
 
 @app.post("/leads")
@@ -283,8 +326,38 @@ def enviar_card_lead(
     return {"id": lead.id, "token": lead.token, "url_card": lead.url_card}
 
 
+@app.post("/leads/{token}/gerar-card")
+def gerar_card_lead(
+    token: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    lead = buscar_lead_ou_404(token=token, db=db)
+    garantir_foto_enviada(lead)
+
+    url_download = montar_url_download_card(request=request, token=token)
+
+    try:
+        foto_bytes = baixar_arquivo_s3(lead.url_foto)
+        card_bytes = gerar_card_jpg(lead=lead, foto_bytes=foto_bytes, url_download=url_download)
+        lead.url_card = enviar_bytes_jpg_para_s3(
+            conteudo=card_bytes,
+            cpf=lead.cpf,
+            pasta="candidatos/cards",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (BotoCoreError, ClientError) as exc:
+        raise HTTPException(status_code=500, detail="Erro ao gerar card") from exc
+
+    db.commit()
+    db.refresh(lead)
+
+    return {"id": lead.id, "token": lead.token, "url_card": lead.url_card}
+
+
 @app.get("/leads/{token}/download-card", name="baixar_card_lead") 
-def baixar_card_lead(token: str, db: Session = Depends(get_db)): #esse endpoint recebe o token
+def baixar_card_lead(token: str, db: Session = Depends(get_db)): 
     lead = buscar_lead_ou_404(token=token, db=db) #busca o token no banco
     garantir_card_gerado(lead) #verifica se o url_card já existe
 
@@ -296,12 +369,12 @@ def gerar_qrcode_download_card(
     token: str,
     request: Request,
     db: Session = Depends(get_db),
-): #esse endpoint recebe o token
+): 
     lead = buscar_lead_ou_404(token=token, db=db) #busca o lead no banco
     garantir_card_gerado(lead) #verifica se o card ja foi gerado
 
     url_download = montar_url_download_card(request=request, token=token) #monta a url de download
-    qrcode_png = gerar_qrcode_png(url_download) #gera um qrcode, apontandfo para /leads/{token}/download-card
+    qrcode_png = gerar_qrcode_png(url_download) #gera um qrcode, apontando para /leads/{token}/download-card
 
     return StreamingResponse(qrcode_png, media_type="image/png")
 
