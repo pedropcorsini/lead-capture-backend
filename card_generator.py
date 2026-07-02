@@ -160,14 +160,8 @@ def gerar_card_jpg(lead, foto_bytes: bytes, url_download: str) -> bytes:
     texto_centralizado(draw, titulo, 96, fonte_titulo, COR_TEXTO_SECUNDARIO)
     draw.line((90, 150, CARD_LARGURA - 90, 150), fill="#1a2b22", width=2)
 
-    # --- Foto (ja vem com a moldura aplicada pelo frontend) ---
+    # --- Foto (ja vem com a moldura aplicada pelo frontend, sem contorno extra aqui) ---
     foto = ImageOps.fit(foto, (FOTO_TAMANHO, FOTO_TAMANHO), method=Image.Resampling.LANCZOS)
-    draw.rounded_rectangle(
-        (foto_x - 6, foto_y - 6, foto_x + FOTO_TAMANHO + 6, foto_y + FOTO_TAMANHO + 6),
-        radius=32,
-        outline=COR_MATRIX,
-        width=4,
-    )
     card.paste(foto, (foto_x, foto_y))
 
     # --- Nome e dados do lead ---
