@@ -7,12 +7,7 @@ from database import Base
 
 
 class Lead(Base):
-    """
-    Função que define como a tabela leads deve ser no banco.
-   
-    nullable=False -> campo obrigatório
-    nullable=True -> campo opcional
-    """
+    """Representa a tabela de leads capturados pelo sistema."""
     __tablename__ = "leads"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)

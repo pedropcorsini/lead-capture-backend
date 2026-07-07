@@ -9,10 +9,12 @@ MAX_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024
 
 
 def apenas_digitos(valor: str) -> str:
+    """Remove todos os caracteres não numéricos do valor informado."""
     return re.sub(r"\D", "", str(valor))
 
 
 def normalizar_texto_obrigatorio(valor: str, nome_campo: str) -> str:
+    """Remove espaços e garante que um campo obrigatório tenha conteúdo."""
     if valor is None:
         raise ValueError(f"{nome_campo} e obrigatorio")
 
@@ -25,6 +27,7 @@ def normalizar_texto_obrigatorio(valor: str, nome_campo: str) -> str:
 
 
 def normalizar_texto_opcional(valor: Optional[str]) -> Optional[str]:
+    """Remove espaços de um texto opcional e converte valores vazios para None."""
     if valor is None:
         return None
 
@@ -37,6 +40,7 @@ def normalizar_texto_opcional(valor: Optional[str]) -> Optional[str]:
 
 
 def normalizar_cpf(valor: str) -> str:
+    """Valida o CPF e retorna apenas seus dígitos."""
     cpf = apenas_digitos(valor)
 
     if len(cpf) != 11:
@@ -60,6 +64,7 @@ def normalizar_cpf(valor: str) -> str:
 
 
 def normalizar_cep(valor: str) -> str:
+    """Valida o CEP e retorna apenas seus oito dígitos."""
     cep = apenas_digitos(valor)
 
     if len(cep) != 8:
@@ -69,6 +74,7 @@ def normalizar_cep(valor: str) -> str:
 
 
 def normalizar_telefone(valor: str) -> str:
+    """Valida o telefone e retorna apenas seus dígitos."""
     telefone = apenas_digitos(valor)
 
     if len(telefone) not in {10, 11}:
@@ -78,6 +84,7 @@ def normalizar_telefone(valor: str) -> str:
 
 
 def validar_upload_jpg(arquivo: UploadFile):
+    """Valida tipo, extensão, tamanho e assinatura de um upload JPG."""
     nome_arquivo = arquivo.filename or ""
 
     if arquivo.content_type != "image/jpeg":

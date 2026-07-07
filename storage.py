@@ -30,6 +30,7 @@ s3_client = boto3.client(
 
 
 def gerar_chave_s3(cpf: str, pasta: str) -> str:
+    """Gera uma chave única no S3 usando pasta, CPF e timestamp."""
     cpf_limpo = re.sub(r"\D", "", cpf) #cpf limpo, sem . e -
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
 
@@ -37,10 +38,12 @@ def gerar_chave_s3(cpf: str, pasta: str) -> str:
 
 
 def montar_url_s3(chave: str) -> str:
+    """Monta a URL pública padrão do S3 para a chave informada."""
     return f"https://{S3_BUCKET_NAME}.s3.{S3_REGION}.amazonaws.com/{chave}" 
 
 
 def extrair_chave_s3_de_url(url_s3: str) -> str:
+    """Extrai a chave do objeto a partir de uma URL do bucket configurado."""
     url = urlparse(url_s3) 
     host = url.netloc
     caminho = unquote(url.path.lstrip("/"))
@@ -61,9 +64,7 @@ def extrair_chave_s3_de_url(url_s3: str) -> str:
 
 
 def gerar_url_temporaria_s3(url_s3: str, tempo_expiracao: int = 300) -> str:
-    """
-    Função que gera uma URL assinada temporária com duração de 5 minutos
-    """
+    """Gera uma URL assinada temporária para download de um arquivo do S3."""
     chave = extrair_chave_s3_de_url(url_s3)
     nome_arquivo = chave.rsplit("/", 1)[-1] or "card.jpg"
 
@@ -80,6 +81,7 @@ def gerar_url_temporaria_s3(url_s3: str, tempo_expiracao: int = 300) -> str:
 
 
 def enviar_jpg_para_s3(arquivo, cpf: str, pasta: str) -> str:
+    """Envia um arquivo JPG recebido por upload para o S3 e retorna sua URL."""
     chave = gerar_chave_s3(cpf=cpf, pasta=pasta)
 
     s3_client.upload_fileobj(
@@ -93,6 +95,7 @@ def enviar_jpg_para_s3(arquivo, cpf: str, pasta: str) -> str:
 
 
 def baixar_arquivo_s3(url_s3: str) -> bytes:
+    """Baixa do S3 o conteúdo binário indicado pela URL informada."""
     chave = extrair_chave_s3_de_url(url_s3)
     resposta = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=chave)
 
@@ -100,6 +103,7 @@ def baixar_arquivo_s3(url_s3: str) -> bytes:
 
 
 def enviar_bytes_jpg_para_s3(conteudo: bytes, cpf: str, pasta: str) -> str:
+    """Envia bytes de uma imagem JPG para o S3 e retorna sua URL."""
     chave = gerar_chave_s3(cpf=cpf, pasta=pasta)
 
     s3_client.upload_fileobj(
