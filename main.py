@@ -1,8 +1,8 @@
 import os
-import secrets
+import secrets #comparação segura de string
 from typing import Optional
 
-from botocore.exceptions import BotoCoreError, ClientError
+from botocore.exceptions import BotoCoreError, ClientError #Erros que o boto3 (SDK AWS) lança quando S3 falha.
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
@@ -58,6 +58,7 @@ if cors_origins:
 
 
 class LeadCreate(BaseModel): #valida os campos
+    """Define e valida os dados necessários para criar um lead."""
     nome: str
     cpf: str
     email: EmailStr
@@ -77,31 +78,37 @@ class LeadCreate(BaseModel): #valida os campos
     @field_validator("nome", "cidade", mode="before")
     @classmethod
     def validar_textos_obrigatorios(cls, valor, info: ValidationInfo):
+        """Normaliza campos textuais obrigatórios antes da validação."""
         return normalizar_texto_obrigatorio(valor, info.field_name)
 
     @field_validator("email", mode="before")
     @classmethod
     def validar_email_obrigatorio(cls, valor):
+        """Garante que o email obrigatório tenha valor antes da validação."""
         return normalizar_texto_obrigatorio(valor, "email")
 
     @field_validator("email", mode="after")
     @classmethod
     def normalizar_email(cls, valor: EmailStr):
+        """Converte o email validado para letras minúsculas."""
         return str(valor).lower()
 
     @field_validator("cpf", mode="before")
     @classmethod
     def validar_cpf(cls, valor):
+        """Valida e normaliza o CPF recebido no cadastro."""
         return normalizar_cpf(valor)
 
     @field_validator("telefone", mode="before")
     @classmethod
     def validar_telefone(cls, valor):
+        """Valida e normaliza o telefone recebido no cadastro."""
         return normalizar_telefone(valor)
 
     @field_validator("cep", mode="before")
     @classmethod
     def validar_cep(cls, valor):
+        """Valida e normaliza o CEP recebido no cadastro."""
         return normalizar_cep(valor)
 
     @field_validator(
@@ -118,10 +125,12 @@ class LeadCreate(BaseModel): #valida os campos
     )
     @classmethod
     def normalizar_textos_opcionais(cls, valor):
+        """Normaliza campos opcionais e remove valores vazios."""
         return normalizar_texto_opcional(valor)
 
 
 def buscar_lead_ou_404(token: str, db: Session):
+    """Busca um lead pelo token ou retorna erro 404."""
     lead = db.query(Lead).filter(Lead.token == token).first()
 
     if lead is None:
@@ -131,16 +140,19 @@ def buscar_lead_ou_404(token: str, db: Session):
 
 
 def garantir_card_gerado(lead: Lead):
+    """Garante que o lead já possua um card gerado."""
     if not lead.url_card:
         raise HTTPException(status_code=404, detail="Card ainda nao foi gerado")
 
 
 def garantir_foto_enviada(lead: Lead):
+    """Garante que o lead já possua uma foto enviada."""
     if not lead.url_foto:
         raise HTTPException(status_code=404, detail="Foto com moldura ainda nao foi enviada")
 
 
 def montar_url_download_card(request: Request, token: str) -> str:
+    """Monta a URL pública de download do card do lead."""
     public_base_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 
     if public_base_url:
@@ -150,6 +162,7 @@ def montar_url_download_card(request: Request, token: str) -> str:
 
 
 def montar_base_url(request: Request) -> str:
+    """Define a URL base pública usada nas respostas da API."""
     public_base_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 
     if public_base_url:
@@ -159,6 +172,7 @@ def montar_base_url(request: Request) -> str:
 
 
 def verificar_admin(x_admin_api_key: Optional[str] = Header(default=None)):
+    """Valida a chave de administrador enviada no cabeçalho da requisição."""
     admin_api_key = os.getenv("ADMIN_API_KEY")
 
     if not admin_api_key:
@@ -169,6 +183,7 @@ def verificar_admin(x_admin_api_key: Optional[str] = Header(default=None)):
 
 
 def buscar_lead_por_id_ou_404(lead_id: int, db: Session):
+    """Busca um lead pelo ID ou retorna erro 404."""
     lead = db.query(Lead).filter(Lead.id == lead_id).first()
 
     if lead is None:
@@ -178,6 +193,7 @@ def buscar_lead_por_id_ou_404(lead_id: int, db: Session):
 
 
 def lead_para_admin(lead: Lead):
+    """Converte um lead do banco para o formato usado pelo painel admin."""
     return {
         "id": lead.id,
         "nome": lead.nome,
@@ -203,6 +219,7 @@ def lead_para_admin(lead: Lead):
 
 
 def redirecionar_para_card_temporario(lead: Lead):
+    """Redireciona para uma URL temporária do card armazenado no S3."""
     try:
         url_temporaria = gerar_url_temporaria_s3(lead.url_card)
     except (BotoCoreError, ClientError, ValueError) as exc:
@@ -213,22 +230,26 @@ def redirecionar_para_card_temporario(lead: Lead):
 
 @app.on_event("startup")
 def criar_tabelas():
+    """Cria as tabelas necessárias no banco ao iniciar a aplicação."""
     Base.metadata.create_all(bind=engine)
 
 
 @app.get("/")
 def read_root():
+    """Retorna o status básico de disponibilidade do backend."""
     return {"status": "Backend no ar"}
 
 
 @app.get("/health")
 def health_check(db: Session = Depends(get_db)):
+    """Verifica se a API e a conexão com o banco estão operacionais."""
     db.execute(text("SELECT 1"))
     return {"status": "ok", "database": "ok"}
 
 
 @app.get("/molduras")
 def listar_molduras(request: Request):
+    """Lista as molduras disponíveis com suas URLs públicas."""
     base_url = montar_base_url(request)
 
     return [
@@ -243,6 +264,7 @@ def listar_molduras(request: Request):
 
 @app.post("/leads")
 def criar_lead(lead: LeadCreate, db: Session = Depends(get_db)):
+    """Cria um novo lead e retorna seu identificador e token."""
     novo_lead = Lead(**lead.model_dump())
     db.add(novo_lead)
     db.commit()
@@ -253,6 +275,7 @@ def criar_lead(lead: LeadCreate, db: Session = Depends(get_db)):
 
 @app.get("/leads/{token}")
 def buscar_lead_por_token(token: str, db: Session = Depends(get_db)):
+    """Retorna os dados de um lead identificado pelo token."""
     lead = buscar_lead_ou_404(token=token, db=db)
 
     return {
@@ -284,6 +307,7 @@ def enviar_foto_lead(
     arquivo: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
+    """Recebe a foto com moldura do lead e armazena no S3."""
     lead = buscar_lead_ou_404(token=token, db=db)
     validar_upload_jpg(arquivo)
 
@@ -308,6 +332,7 @@ def enviar_card_lead(
     arquivo: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
+    """Recebe um card pronto do lead e armazena no S3."""
     lead = buscar_lead_ou_404(token=token, db=db)
     validar_upload_jpg(arquivo)
 
@@ -332,6 +357,7 @@ def gerar_card_lead(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    """Gera o card final do lead a partir da foto já enviada."""
     lead = buscar_lead_ou_404(token=token, db=db)
     garantir_foto_enviada(lead)
 
@@ -358,6 +384,7 @@ def gerar_card_lead(
 
 @app.get("/leads/{token}/download-card", name="baixar_card_lead") 
 def baixar_card_lead(token: str, db: Session = Depends(get_db)): 
+    """Redireciona o lead para o download temporário do card."""
     lead = buscar_lead_ou_404(token=token, db=db) #busca o token no banco
     garantir_card_gerado(lead) #verifica se o url_card já existe
 
@@ -370,6 +397,7 @@ def gerar_qrcode_download_card(
     request: Request,
     db: Session = Depends(get_db),
 ): 
+    """Gera um QR Code que aponta para o download do card do lead."""
     lead = buscar_lead_ou_404(token=token, db=db) #busca o lead no banco
     garantir_card_gerado(lead) #verifica se o card ja foi gerado
 
@@ -388,6 +416,7 @@ def listar_leads_admin(
     db: Session = Depends(get_db),
     admin_autenticado: None = Depends(verificar_admin),
 ):
+    """Lista leads para o painel admin com filtros e paginação."""
     query = db.query(Lead)
 
     if nome and nome.strip():
@@ -418,6 +447,7 @@ def detalhar_lead_admin(
     db: Session = Depends(get_db),
     admin_autenticado: None = Depends(verificar_admin),
 ):
+    """Retorna os detalhes de um lead para o painel admin."""
     lead = buscar_lead_por_id_ou_404(lead_id=lead_id, db=db)
 
     return lead_para_admin(lead)
@@ -429,6 +459,7 @@ def baixar_card_admin(
     db: Session = Depends(get_db),
     admin_autenticado: None = Depends(verificar_admin),
 ):
+    """Redireciona o admin para o download temporário do card de um lead."""
     lead = buscar_lead_por_id_ou_404(lead_id=lead_id, db=db)
     garantir_card_gerado(lead)
 

@@ -17,7 +17,8 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine) #cri
 Base = declarative_base() #base usada pelos models
 
 
-def get_db(): #abre uma sessão para cada request e fecha no final
+def get_db():
+    """Abre uma sessão de banco por requisição e fecha ao final do uso."""
     db = SessionLocal()
     try:
         yield db

@@ -4,6 +4,7 @@ import qrcode
 
 
 def gerar_qrcode_png(conteudo: str) -> BytesIO:
+    """Gera um QR Code em PNG para o conteúdo informado."""
     qr = qrcode.QRCode(
         error_correction=qrcode.constants.ERROR_CORRECT_M,
         box_size=10,

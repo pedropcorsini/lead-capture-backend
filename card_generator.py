@@ -20,6 +20,7 @@ COR_QR_BORDA = "#00ff41"
 
 
 def carregar_fonte(tamanho: int, negrito: bool = False):
+    """Carrega uma fonte disponível no projeto ou no sistema operacional."""
     nome_arquivo = "DejaVuSans-Bold.ttf" if negrito else "DejaVuSans.ttf"
     caminho_bundled = os.path.join(os.path.dirname(__file__), "assets", "fonts", nome_arquivo)
 
@@ -40,6 +41,7 @@ def carregar_fonte(tamanho: int, negrito: bool = False):
 
 
 def texto_centralizado(draw: ImageDraw.ImageDraw, texto: str, y: int, fonte, cor: str, largura: int = CARD_LARGURA):
+    """Desenha um texto centralizado na largura informada e retorna sua altura."""
     bbox = draw.textbbox((0, 0), texto, font=fonte)
     texto_largura = bbox[2] - bbox[0]
     x = (largura - texto_largura) // 2
@@ -48,6 +50,7 @@ def texto_centralizado(draw: ImageDraw.ImageDraw, texto: str, y: int, fonte, cor
 
 
 def texto_bicolor_centralizado(draw: ImageDraw.ImageDraw, parte1: str, parte2: str, y: int, fonte, cor1: str, cor2: str, largura: int = CARD_LARGURA):
+    """Desenha duas partes de texto centralizadas com cores diferentes."""
     bbox1 = draw.textbbox((0, 0), parte1, font=fonte)
     bbox2 = draw.textbbox((0, 0), parte2, font=fonte)
     largura_total = (bbox1[2] - bbox1[0]) + (bbox2[2] - bbox2[0])
@@ -57,6 +60,7 @@ def texto_bicolor_centralizado(draw: ImageDraw.ImageDraw, parte1: str, parte2: s
 
 
 def quebrar_texto(draw: ImageDraw.ImageDraw, texto: str, fonte, largura_maxima: int) -> list[str]:
+    """Quebra um texto em linhas respeitando a largura máxima informada."""
     palavras = texto.split()
     linhas = []
     linha_atual = ""
@@ -87,8 +91,7 @@ def ajustar_fonte_e_quebrar(
     max_linhas: int = 2,
     negrito: bool = True,
 ):
-    """Encolhe a fonte ate o texto caber em no maximo `max_linhas`, garantindo
-    que nomes/dados longos nunca fiquem minusculos nem sejam cortados."""
+    """Ajusta a fonte e quebra o texto para caber no limite de linhas."""
     tamanho = tamanho_inicial
 
     while tamanho >= tamanho_minimo:
@@ -104,6 +107,7 @@ def ajustar_fonte_e_quebrar(
 
 
 def gerar_card_jpg(lead, foto_bytes: bytes, url_download: str) -> bytes:
+    """Gera o card personalizado do lead em formato JPG."""
     try:
         foto = Image.open(BytesIO(foto_bytes)).convert("RGB")
     except UnidentifiedImageError as exc:
